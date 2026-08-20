@@ -40,7 +40,7 @@ Open [http://localhost:3000](http://localhost:3000).
 ### Demo mode (no API key)
 
 1. Leave **Try a demo sample** selected
-2. Pick a scenario (clean pass, soft brand match, warning title case, ABV mismatch, missing warning)
+2. Pick a scenario (Pass / Review / Fail cases: brand, ABV, net contents, warning prefix, warning wording, missing warning)
 3. Click **Verify label**
 
 Each demo includes a sample label image under `public/samples/`.
