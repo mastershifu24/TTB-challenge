@@ -6,9 +6,9 @@ Agents upload (or demo) a label image, enter application fields, and get a field
 
 ## Deployed app
 
-**Live URL:** _(add after deploy — e.g. Vercel production URL)_
+**Live URL:** [https://ttb-challenge.vercel.app](https://ttb-challenge.vercel.app)
 
-Demo samples work without an API key. Live image checks need `OPENAI_API_KEY` set in the host environment.
+Demo samples work without an API key. Live image uploads need `OPENAI_API_KEY` set in the Vercel project environment (Production + Preview), then redeploy.
 
 ## Why this exists
 

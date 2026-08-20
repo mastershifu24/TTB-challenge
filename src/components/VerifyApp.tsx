@@ -13,6 +13,7 @@ import {
 import BatchVerifyApp from "@/components/BatchVerifyApp";
 
 type Mode = "upload" | "demo";
+type AgentDetermination = "accept" | "reject" | "hold" | null;
 
 const emptyApplication = (): ApplicationFields => ({
   brandName: "",
@@ -48,6 +49,32 @@ function overallCopy(overall: VerificationResult["overall"]): {
   return { title: "Issues found", className: "result-bad" };
 }
 
+function determinationCopy(d: Exclude<AgentDetermination, null>): {
+  title: string;
+  detail: string;
+  className: string;
+} {
+  if (d === "accept") {
+    return {
+      title: "Accepted",
+      detail: "You marked this application as matching the label.",
+      className: "result-ok",
+    };
+  }
+  if (d === "reject") {
+    return {
+      title: "Rejected",
+      detail: "You marked this application for rejection / return to applicant.",
+      className: "result-bad",
+    };
+  }
+  return {
+    title: "Held for review",
+    detail: "Parked for a supervisor or second-look review.",
+    className: "result-warn",
+  };
+}
+
 export default function VerifyApp() {
   const [view, setView] = useState<"single" | "batch">("single");
   const inputId = useId();
@@ -61,6 +88,7 @@ export default function VerifyApp() {
   const [dragActive, setDragActive] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [result, setResult] = useState<VerificationResult | null>(null);
+  const [determination, setDetermination] = useState<AgentDetermination>(null);
   const [batchQueue, setBatchQueue] = useState<File[]>([]);
   const [batchIndex, setBatchIndex] = useState(0);
   const [isPending, startTransition] = useTransition();
@@ -70,6 +98,7 @@ export default function VerifyApp() {
     if (sample && mode === "demo") {
       setApplication({ ...sample.application });
       setResult(null);
+      setDetermination(null);
       setError(null);
     }
   }, [demoSampleId, mode]);
@@ -91,6 +120,7 @@ export default function VerifyApp() {
     setMode("upload");
     setError(null);
     setResult(null);
+    setDetermination(null);
 
     if (list.length > 1) {
       setBatchQueue(list);
@@ -108,6 +138,7 @@ export default function VerifyApp() {
 
   function verify() {
     setError(null);
+    setDetermination(null);
     startTransition(async () => {
       try {
         const payload =
@@ -141,6 +172,7 @@ export default function VerifyApp() {
     setImageName(file.name);
     setImageDataUrl(await fileToDataUrlResized(file));
     setResult(null);
+    setDetermination(null);
     setError(null);
   }
 
