@@ -2,33 +2,30 @@
 
 import { useEffect, useId, useRef, useState, useTransition } from "react";
 import { statusTone } from "@/lib/compare";
-import { DEMO_SAMPLES } from "@/lib/samples";
+import { DEMO_SAMPLES, type DemoSample } from "@/lib/samples";
 import { fileToDataUrlResized } from "@/lib/image";
 import {
-  STANDARD_GOVERNMENT_WARNING,
   type ApplicationFields,
   type MatchStatus,
   type VerificationResult,
 } from "@/lib/types";
 import BatchVerifyApp from "@/components/BatchVerifyApp";
 import {
-  clearReviews,
-  deleteReview,
   loadSavedReviews,
   saveReview,
   type SavedReview,
 } from "@/lib/history";
 
-type Mode = "upload" | "demo";
+type Mode = "demo" | "upload";
 type AgentDetermination = "accept" | "reject" | "hold" | null;
 
-const emptyApplication = (): ApplicationFields => ({
-  brandName: "",
-  classType: "",
-  alcoholContent: "",
-  netContents: "",
-  governmentWarning: STANDARD_GOVERNMENT_WARNING,
-});
+function pickRandomSample(excludeId?: string): DemoSample {
+  const pool =
+    DEMO_SAMPLES.length > 1 && excludeId
+      ? DEMO_SAMPLES.filter((s) => s.id !== excludeId)
+      : DEMO_SAMPLES;
+  return pool[Math.floor(Math.random() * pool.length)]!;
+}
 
 function statusLabel(status: MatchStatus): string {
   switch (status) {
@@ -51,7 +48,7 @@ function overallCopy(overall: VerificationResult["overall"]): {
     return { title: "Looks good", className: "result-ok" };
   }
   if (overall === "review") {
-    return { title: "Quick review recommended", className: "result-warn" };
+    return { title: "Needs your judgment", className: "result-warn" };
   }
   return { title: "Issues found", className: "result-bad" };
 }
@@ -64,20 +61,20 @@ function determinationCopy(d: Exclude<AgentDetermination, null>): {
   if (d === "accept") {
     return {
       title: "Accepted",
-      detail: "You marked this application as matching the label.",
+      detail: "You accepted this application.",
       className: "result-ok",
     };
   }
   if (d === "reject") {
     return {
       title: "Rejected",
-      detail: "You marked this application for rejection / return to applicant.",
+      detail: "You rejected this application.",
       className: "result-bad",
     };
   }
   return {
-    title: "Held for review",
-    detail: "Parked for a supervisor or second-look review.",
+    title: "Held",
+    detail: "Held for a second look.",
     className: "result-warn",
   };
 }
@@ -87,9 +84,10 @@ export default function VerifyApp() {
   const inputId = useId();
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [mode, setMode] = useState<Mode>("demo");
-  const [application, setApplication] =
-    useState<ApplicationFields>(emptyApplication);
-  const [demoSampleId, setDemoSampleId] = useState(DEMO_SAMPLES[0].id);
+  const [sample, setSample] = useState<DemoSample>(DEMO_SAMPLES[0]!);
+  const [application, setApplication] = useState<ApplicationFields>(
+    () => ({ ...DEMO_SAMPLES[0]!.application }),
+  );
   const [imageDataUrl, setImageDataUrl] = useState<string | null>(null);
   const [imageName, setImageName] = useState<string | null>(null);
   const [dragActive, setDragActive] = useState(false);
@@ -97,37 +95,33 @@ export default function VerifyApp() {
   const [result, setResult] = useState<VerificationResult | null>(null);
   const [determination, setDetermination] = useState<AgentDetermination>(null);
   const [savedReviews, setSavedReviews] = useState<SavedReview[]>([]);
-  const [keepNote, setKeepNote] = useState<string | null>(null);
-  const [batchQueue, setBatchQueue] = useState<File[]>([]);
-  const [batchIndex, setBatchIndex] = useState(0);
+  const [showMore, setShowMore] = useState(false);
   const [isPending, startTransition] = useTransition();
 
+  // Sync application from sample on first client paint (avoid SSR/client random mismatch).
   useEffect(() => {
+    const first = pickRandomSample();
+    setSample(first);
+    setApplication({ ...first.application });
     setSavedReviews(loadSavedReviews());
   }, []);
 
-  useEffect(() => {
-    const sample = DEMO_SAMPLES.find((s) => s.id === demoSampleId);
-    if (sample && mode === "demo") {
-      setApplication({ ...sample.application });
-      setResult(null);
-      setDetermination(null);
-      setKeepNote(null);
-      setError(null);
-    }
-  }, [demoSampleId, mode]);
-
-  function updateField<K extends keyof ApplicationFields>(
-    key: K,
-    value: ApplicationFields[K],
-  ) {
-    setApplication((prev) => ({ ...prev, [key]: value }));
+  function loadRandomCase() {
+    const next = pickRandomSample(sample.id);
+    setMode("demo");
+    setSample(next);
+    setApplication({ ...next.application });
+    setImageDataUrl(null);
+    setImageName(null);
+    setResult(null);
+    setDetermination(null);
+    setError(null);
   }
 
   async function onFilesSelected(files: FileList | File[]) {
     const list = Array.from(files).filter((f) => f.type.startsWith("image/"));
     if (list.length === 0) {
-      setError("Please choose an image file (PNG, JPG, or WEBP).");
+      setError("Please choose a picture of a label (PNG, JPG, or WEBP).");
       return;
     }
 
@@ -135,31 +129,18 @@ export default function VerifyApp() {
     setError(null);
     setResult(null);
     setDetermination(null);
-    setKeepNote(null);
-
-    if (list.length > 1) {
-      setBatchQueue(list);
-      setBatchIndex(0);
-      const first = list[0];
-      setImageName(first.name);
-      setImageDataUrl(await fileToDataUrlResized(first));
-    } else {
-      setBatchQueue([]);
-      setBatchIndex(0);
-      setImageName(list[0].name);
-      setImageDataUrl(await fileToDataUrlResized(list[0]));
-    }
+    setImageName(list[0].name);
+    setImageDataUrl(await fileToDataUrlResized(list[0]));
   }
 
   function verify() {
     setError(null);
     setDetermination(null);
-    setKeepNote(null);
     startTransition(async () => {
       try {
         const payload =
           mode === "demo"
-            ? { application, demoSampleId }
+            ? { application, demoSampleId: sample.id }
             : { application, imageDataUrl };
 
         const response = await fetch("/api/verify", {
@@ -170,347 +151,232 @@ export default function VerifyApp() {
 
         const data = await response.json();
         if (!response.ok) {
-          throw new Error(data.error || "Verification failed.");
+          throw new Error(data.error || "Something went wrong. Please try again.");
         }
         setResult(data as VerificationResult);
       } catch (err) {
         setResult(null);
-        setError(err instanceof Error ? err.message : "Verification failed.");
+        setError(
+          err instanceof Error
+            ? err.message
+            : "Something went wrong. Please try again.",
+        );
       }
     });
   }
 
-  async function loadNextBatchItem() {
-    const next = batchIndex + 1;
-    if (next >= batchQueue.length) return;
-    const file = batchQueue[next];
-    setBatchIndex(next);
-    setImageName(file.name);
-    setImageDataUrl(await fileToDataUrlResized(file));
-    setResult(null);
-    setDetermination(null);
-    setKeepNote(null);
-    setError(null);
-  }
-
-  function keepCurrentReview() {
-    if (!result || !determination) return;
-    const label =
-      application.brandName.trim() ||
-      imageName ||
-      DEMO_SAMPLES.find((s) => s.id === demoSampleId)?.name ||
-      "Label review";
+  function recordDetermination(value: Exclude<AgentDetermination, null>) {
+    if (!result) return;
+    setDetermination(value);
     const next = saveReview({
-      label,
-      determination,
+      label: application.brandName || sample.name,
+      determination: value,
       overall: result.overall,
       application,
       result,
       imageDataUrl: mode === "upload" ? imageDataUrl : null,
-      demoSampleId: mode === "demo" ? demoSampleId : undefined,
+      demoSampleId: mode === "demo" ? sample.id : undefined,
     });
     setSavedReviews(next);
-    setKeepNote("Kept in this browser (local only).");
-  }
-
-  function discardCurrentReview() {
-    setResult(null);
-    setDetermination(null);
-    setKeepNote(null);
-    setError(null);
-  }
-
-  function removeSaved(id: string) {
-    setSavedReviews(deleteReview(id));
-  }
-
-  function removeAllSaved() {
-    setSavedReviews(clearReviews());
-  }
-
-  function openSaved(review: SavedReview) {
-    setView("single");
-    setApplication({ ...review.application });
-    setResult(review.result);
-    setDetermination(review.determination);
-    setKeepNote("Loaded from saved reviews.");
-    setError(null);
-    if (review.demoSampleId) {
-      setMode("demo");
-      setDemoSampleId(review.demoSampleId);
-      setImageDataUrl(null);
-      setImageName(null);
-    } else if (review.imageDataUrl) {
-      setMode("upload");
-      setImageDataUrl(review.imageDataUrl);
-      setImageName(review.label);
-    }
   }
 
   const canVerify =
-    application.brandName.trim() &&
-    application.classType.trim() &&
-    application.alcoholContent.trim() &&
-    application.netContents.trim() &&
-    application.governmentWarning.trim() &&
+    Boolean(application.brandName.trim()) &&
     (mode === "demo" || Boolean(imageDataUrl));
 
   if (view === "batch") {
     return (
       <main className="mx-auto flex w-full max-w-6xl flex-col px-5 pb-16 pt-10 sm:px-8 sm:pt-14">
-        <div className="mb-6 flex flex-wrap gap-2">
-          <button
-            type="button"
-            className="btn-secondary"
-            onClick={() => setView("single")}
-          >
-            Back to single label
-          </button>
-        </div>
+        <button
+          type="button"
+          className="btn-secondary mb-6 self-start"
+          onClick={() => setView("single")}
+        >
+          ← Back
+        </button>
         <BatchVerifyApp />
       </main>
     );
   }
 
-  const activeDemo = DEMO_SAMPLES.find((s) => s.id === demoSampleId);
-
   return (
     <main className="mx-auto flex w-full max-w-6xl flex-col px-5 pb-16 pt-10 sm:px-8 sm:pt-14">
-      <header className="animate-rise mb-10 max-w-2xl">
+      <header className="animate-rise mb-8 max-w-2xl">
         <p className="mb-3 text-sm font-semibold tracking-[0.14em] text-[var(--brand)] uppercase">
           TTB label assist · prototype
         </p>
         <h1
-          className="font-[family-name:var(--font-fraunces)] text-5xl leading-[1.05] font-bold tracking-tight text-[var(--ink)] sm:text-6xl"
+          className="text-5xl leading-[1.05] font-bold tracking-tight text-[var(--ink)] sm:text-6xl"
           style={{ fontFamily: "var(--font-fraunces), Georgia, serif" }}
         >
           ProofCheck
         </h1>
-        <p className="mt-4 max-w-xl text-lg leading-relaxed text-[var(--ink-soft)] sm:text-xl">
-          Check that the label matches the application — brand, ABV, net
-          contents, and government warning — in about 5 seconds.
+        <p className="mt-4 max-w-xl text-xl leading-relaxed text-[var(--ink-soft)]">
+          Look at the label. Read the application. Press Check. Then Accept,
+          Reject, or Hold.
         </p>
       </header>
 
       <div className="grid items-start gap-8 lg:grid-cols-[1.05fr_0.95fr]">
         <section className="animate-rise-delay space-y-6">
-          <div>
-            <p className="mb-2 text-sm font-semibold text-[var(--ink)]">
-              1. Choose how to start
-            </p>
-            <div className="flex flex-wrap gap-2">
-              <button
-                type="button"
-                className="btn-secondary"
-                data-active={mode === "demo"}
-                onClick={() => {
-                setMode("demo");
-                setImageDataUrl(null);
-                setImageName(null);
-                setBatchQueue([]);
-                setResult(null);
-                setDetermination(null);
-                setKeepNote(null);
-                setError(null);
-                }}
-                style={
-                  mode === "demo"
-                    ? { borderColor: "var(--brand)", background: "#fff" }
-                    : undefined
-                }
-              >
-                Try a demo sample
-              </button>
-              <button
-                type="button"
-                className="btn-secondary"
-                onClick={() => {
-                  setMode("upload");
-                  fileInputRef.current?.click();
-                }}
-                style={
-                  mode === "upload"
-                    ? { borderColor: "var(--brand)", background: "#fff" }
-                    : undefined
-                }
-              >
-                Upload label image
-              </button>
-              <button
-                type="button"
-                className="btn-secondary"
-                onClick={() => setView("batch")}
-              >
-                Batch (CSV + images)
-              </button>
-            </div>
+          <div className="flex flex-wrap gap-3">
+            <button
+              type="button"
+              className="btn-primary"
+              onClick={loadRandomCase}
+            >
+              Next random case
+            </button>
+            <button
+              type="button"
+              className="btn-primary"
+              disabled={!canVerify || isPending}
+              onClick={verify}
+            >
+              {isPending ? (
+                <span className="inline-flex items-center gap-2">
+                  <span className="working-dot">●</span> Checking…
+                </span>
+              ) : (
+                "Check label"
+              )}
+            </button>
           </div>
 
-          {mode === "demo" ? (
-            <div className="space-y-4">
-              <div>
-                <label
-                  htmlFor={`${inputId}-sample`}
-                  className="mb-2 block text-sm font-semibold text-[var(--ink)]"
-                >
-                  Demo sample
-                </label>
-                <select
-                  id={`${inputId}-sample`}
-                  className="field-input"
-                  value={demoSampleId}
-                  onChange={(e) => setDemoSampleId(e.target.value)}
-                >
-                  {DEMO_SAMPLES.map((sample) => (
-                    <option key={sample.id} value={sample.id}>
-                      {sample.name}
-                    </option>
-                  ))}
-                </select>
-                <p className="mt-2 text-sm leading-relaxed text-[var(--ink-soft)]">
-                  {activeDemo?.description}
-                </p>
-              </div>
-              {activeDemo?.imagePath ? (
-                // eslint-disable-next-line @next/next/no-img-element
-                <img
-                  src={activeDemo.imagePath}
-                  alt={`${activeDemo.name} sample alcohol label`}
-                  className="max-h-72 w-full rounded-xl border border-[var(--line)] bg-white object-contain p-2"
-                />
-              ) : null}
-            </div>
-          ) : (
-            <div
-              className="dropzone rounded-2xl p-6"
-              data-active={dragActive}
-              onDragEnter={(e) => {
-                e.preventDefault();
-                setDragActive(true);
-              }}
-              onDragOver={(e) => e.preventDefault()}
-              onDragLeave={() => setDragActive(false)}
-              onDrop={(e) => {
-                e.preventDefault();
-                setDragActive(false);
-                void onFilesSelected(e.dataTransfer.files);
-              }}
-            >
-              <input
-                ref={fileInputRef}
-                id={`${inputId}-file`}
-                type="file"
-                accept="image/*"
-                multiple
-                className="sr-only"
-                onChange={(e) => {
-                  if (e.target.files) void onFilesSelected(e.target.files);
-                }}
+          <div className="space-y-3">
+            <p className="text-lg font-semibold text-[var(--ink)]">Label</p>
+            {mode === "demo" ? (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img
+                src={sample.imagePath}
+                alt="Alcohol label for this case"
+                className="max-h-80 w-full rounded-xl border border-[var(--line)] bg-white object-contain p-2"
               />
-              <label
-                htmlFor={`${inputId}-file`}
-                className="flex cursor-pointer flex-col gap-2"
+            ) : (
+              <div
+                className="dropzone rounded-2xl p-6"
+                data-active={dragActive}
+                onDragEnter={(e) => {
+                  e.preventDefault();
+                  setDragActive(true);
+                }}
+                onDragOver={(e) => e.preventDefault()}
+                onDragLeave={() => setDragActive(false)}
+                onDrop={(e) => {
+                  e.preventDefault();
+                  setDragActive(false);
+                  void onFilesSelected(e.dataTransfer.files);
+                }}
               >
-                <span className="text-lg font-semibold text-[var(--ink)]">
-                  Drop label image(s) here
-                </span>
-                <span className="text-[var(--ink-soft)]">
-                  Or click to choose. Multiple files run as a simple batch queue.
-                </span>
-                {imageName ? (
-                  <span className="mt-2 font-medium text-[var(--brand)]">
-                    Selected: {imageName}
-                    {batchQueue.length > 1
-                      ? ` (${batchIndex + 1} of ${batchQueue.length})`
-                      : ""}
-                  </span>
-                ) : null}
-              </label>
-              {imageDataUrl ? (
-                // eslint-disable-next-line @next/next/no-img-element
-                <img
-                  src={imageDataUrl}
-                  alt="Uploaded alcohol label"
-                  className="mt-4 max-h-64 w-full rounded-xl object-contain bg-white"
+                <input
+                  ref={fileInputRef}
+                  id={`${inputId}-file`}
+                  type="file"
+                  accept="image/*"
+                  className="sr-only"
+                  onChange={(e) => {
+                    if (e.target.files) void onFilesSelected(e.target.files);
+                  }}
                 />
-              ) : null}
-            </div>
-          )}
+                <label
+                  htmlFor={`${inputId}-file`}
+                  className="flex cursor-pointer flex-col gap-2"
+                >
+                  <span className="text-lg font-semibold text-[var(--ink)]">
+                    Drop a label picture here
+                  </span>
+                  <span className="text-[var(--ink-soft)]">
+                    Or click to choose one. Application fields stay locked.
+                  </span>
+                  {imageName ? (
+                    <span className="mt-2 font-medium text-[var(--brand)]">
+                      Selected: {imageName}
+                    </span>
+                  ) : null}
+                </label>
+                {imageDataUrl ? (
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img
+                    src={imageDataUrl}
+                    alt="Uploaded alcohol label"
+                    className="mt-4 max-h-64 w-full rounded-xl bg-white object-contain"
+                  />
+                ) : null}
+              </div>
+            )}
+          </div>
 
-          <form
-            className="space-y-4"
-            onSubmit={(e) => {
-              e.preventDefault();
-              if (canVerify && !isPending) verify();
-            }}
-          >
-            <p className="text-sm font-semibold text-[var(--ink)]">
-              2. Confirm application fields
-            </p>
-            <Field
-              id={`${inputId}-brand`}
-              label="Brand name"
-              value={application.brandName}
-              onChange={(v) => updateField("brandName", v)}
-            />
-            <Field
-              id={`${inputId}-class`}
-              label="Class / type"
-              value={application.classType}
-              onChange={(v) => updateField("classType", v)}
-            />
-            <div className="grid gap-4 sm:grid-cols-2">
-              <Field
-                id={`${inputId}-abv`}
+          <div className="space-y-3">
+            <div className="flex flex-wrap items-baseline justify-between gap-2">
+              <p className="text-lg font-semibold text-[var(--ink)]">
+                Application (locked)
+              </p>
+              <p className="text-sm text-[var(--ink-soft)]">
+                Reviewers cannot edit these fields
+              </p>
+            </div>
+            <LockedField label="Brand name" value={application.brandName} />
+            <LockedField label="Class / type" value={application.classType} />
+            <div className="grid gap-3 sm:grid-cols-2">
+              <LockedField
                 label="Alcohol content"
                 value={application.alcoholContent}
-                onChange={(v) => updateField("alcoholContent", v)}
-                placeholder="45% Alc./Vol. (90 Proof)"
               />
-              <Field
-                id={`${inputId}-net`}
+              <LockedField
                 label="Net contents"
                 value={application.netContents}
-                onChange={(v) => updateField("netContents", v)}
-                placeholder="750 mL"
               />
             </div>
-            <div>
-              <label
-                htmlFor={`${inputId}-warning`}
-                className="mb-2 block text-sm font-semibold"
-              >
-                Government warning (application)
-              </label>
-              <textarea
-                id={`${inputId}-warning`}
-                className="field-input min-h-32 resize-y"
-                value={application.governmentWarning}
-                onChange={(e) =>
-                  updateField("governmentWarning", e.target.value)
-                }
-              />
-            </div>
+            <LockedField
+              label="Government warning"
+              value={application.governmentWarning}
+              multiline
+            />
+          </div>
 
-            <div className="pt-1">
-              <p className="mb-3 text-sm font-semibold text-[var(--ink)]">
-                3. Run the check
-              </p>
-              <button
-                type="submit"
-                className="btn-primary w-full sm:w-auto sm:min-w-56"
-                disabled={!canVerify || isPending}
-              >
-                {isPending ? (
-                  <span className="inline-flex items-center gap-2">
-                    <span className="working-dot">●</span> Checking label…
-                  </span>
-                ) : (
-                  "Verify label"
-                )}
-              </button>
-            </div>
-          </form>
+          <div>
+            <button
+              type="button"
+              className="btn-secondary"
+              onClick={() => setShowMore((v) => !v)}
+              aria-expanded={showMore}
+            >
+              {showMore ? "Hide extra options" : "Extra options"}
+            </button>
+            {showMore ? (
+              <div className="mt-3 flex flex-wrap gap-2">
+                <button
+                  type="button"
+                  className="btn-secondary"
+                  onClick={() => {
+                    setMode("upload");
+                    setResult(null);
+                    setDetermination(null);
+                    setError(null);
+                    fileInputRef.current?.click();
+                  }}
+                >
+                  Upload my own label picture
+                </button>
+                <button
+                  type="button"
+                  className="btn-secondary"
+                  onClick={() => setView("batch")}
+                >
+                  Check many at once (CSV)
+                </button>
+                {mode === "upload" ? (
+                  <button
+                    type="button"
+                    className="btn-secondary"
+                    onClick={loadRandomCase}
+                  >
+                    Back to practice cases
+                  </button>
+                ) : null}
+              </div>
+            ) : null}
+          </div>
         </section>
 
         <aside className="animate-rise-delay-2 lg:sticky lg:top-8">
@@ -524,8 +390,8 @@ export default function VerifyApp() {
             >
               Results
             </h2>
-            <p className="mt-2 text-[var(--ink-soft)]">
-              System recommendation first — then record your determination.
+            <p className="mt-2 text-lg text-[var(--ink-soft)]">
+              See the system check, then make your decision.
             </p>
 
             {error ? (
@@ -535,59 +401,10 @@ export default function VerifyApp() {
             ) : null}
 
             {!result && !error ? (
-              <div className="mt-8 space-y-4">
-                <p className="text-[var(--ink-soft)]">
-                  Choose a demo sample or upload a label, then press{" "}
-                  <strong className="text-[var(--ink)]">Verify label</strong>.
-                </p>
-                {savedReviews.length > 0 ? (
-                  <div className="rounded-xl border border-[var(--line)] bg-white/70 px-4 py-3">
-                    <div className="flex items-center justify-between gap-3">
-                      <p className="text-sm font-semibold text-[var(--ink)]">
-                        Saved in this browser ({savedReviews.length})
-                      </p>
-                      <button
-                        type="button"
-                        className="btn-secondary"
-                        style={{ padding: "0.4rem 0.7rem", fontSize: "0.85rem" }}
-                        onClick={removeAllSaved}
-                      >
-                        Delete all
-                      </button>
-                    </div>
-                    <ul className="mt-3 space-y-2">
-                      {savedReviews.map((review) => (
-                        <li
-                          key={review.id}
-                          className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-[var(--line)] bg-white/80 px-3 py-2 text-sm"
-                        >
-                          <button
-                            type="button"
-                            className="min-w-0 flex-1 text-left"
-                            onClick={() => openSaved(review)}
-                          >
-                            <span className="font-semibold text-[var(--ink)]">
-                              {review.label}
-                            </span>
-                            <span className="mt-0.5 block text-[var(--ink-soft)]">
-                              {review.determination} · {review.overall} ·{" "}
-                              {new Date(review.savedAt).toLocaleString()}
-                            </span>
-                          </button>
-                          <button
-                            type="button"
-                            className="btn-secondary"
-                            style={{ padding: "0.35rem 0.65rem", fontSize: "0.8rem" }}
-                            onClick={() => removeSaved(review.id)}
-                          >
-                            Delete
-                          </button>
-                        </li>
-                      ))}
-                    </ul>
-                  </div>
-                ) : null}
-              </div>
+              <p className="mt-8 text-lg text-[var(--ink-soft)]">
+                Press <strong className="text-[var(--ink)]">Check label</strong>{" "}
+                when you are ready.
+              </p>
             ) : null}
 
             {result ? (
@@ -598,32 +415,26 @@ export default function VerifyApp() {
                   <p className="text-xs font-semibold tracking-wide uppercase opacity-80">
                     System check
                   </p>
-                  <p className="text-lg font-bold">
+                  <p className="text-xl font-bold">
                     {overallCopy(result.overall).title}
                   </p>
                   <p className="mt-1 text-[0.95rem] leading-relaxed">
                     {result.summary}
                   </p>
                   <p className="mt-2 text-sm opacity-80">
-                    {result.elapsedMs} ms ·{" "}
-                    {result.mode === "demo" ? "demo mode" : "live vision"}
+                    {result.elapsedMs} ms
                   </p>
                 </div>
 
-                <div className="rounded-xl border border-[var(--line)] bg-white/70 px-4 py-3">
-                  <p className="text-sm font-semibold text-[var(--ink)]">
-                    Agent determination
+                <div className="rounded-xl border border-[var(--line)] bg-white/70 px-4 py-4">
+                  <p className="text-lg font-semibold text-[var(--ink)]">
+                    Your decision
                   </p>
-                  <p className="mt-1 text-sm text-[var(--ink-soft)]">
-                    Prototype only — not sent to COLA. Choose how you would
-                    handle this application.
-                  </p>
-                  <div className="mt-3 flex flex-wrap gap-2">
+                  <div className="mt-3 flex flex-col gap-2 sm:flex-row sm:flex-wrap">
                     <button
                       type="button"
                       className="btn-primary"
-                      style={{ padding: "0.65rem 1rem", fontSize: "1rem" }}
-                      onClick={() => setDetermination("accept")}
+                      onClick={() => recordDetermination("accept")}
                       aria-pressed={determination === "accept"}
                     >
                       Accept
@@ -631,7 +442,7 @@ export default function VerifyApp() {
                     <button
                       type="button"
                       className="btn-secondary"
-                      onClick={() => setDetermination("reject")}
+                      onClick={() => recordDetermination("reject")}
                       aria-pressed={determination === "reject"}
                       style={
                         determination === "reject"
@@ -644,7 +455,7 @@ export default function VerifyApp() {
                     <button
                       type="button"
                       className="btn-secondary"
-                      onClick={() => setDetermination("hold")}
+                      onClick={() => recordDetermination("hold")}
                       aria-pressed={determination === "hold"}
                       style={
                         determination === "hold"
@@ -655,7 +466,7 @@ export default function VerifyApp() {
                           : undefined
                       }
                     >
-                      Hold for review
+                      Hold
                     </button>
                   </div>
                   {determination ? (
@@ -667,79 +478,19 @@ export default function VerifyApp() {
                         {determinationCopy(determination).title}
                       </p>
                       <p className="mt-0.5 opacity-90">
-                        {determinationCopy(determination).detail}
-                      </p>
-                      <div className="mt-3 flex flex-wrap gap-2">
-                        <button
-                          type="button"
-                          className="btn-primary"
-                          style={{ padding: "0.55rem 0.9rem", fontSize: "0.95rem" }}
-                          onClick={keepCurrentReview}
-                        >
-                          Keep in app
-                        </button>
-                        <button
-                          type="button"
-                          className="btn-secondary"
-                          onClick={discardCurrentReview}
-                        >
-                          Discard
-                        </button>
-                      </div>
-                      {keepNote ? (
-                        <p className="mt-2 text-sm opacity-90">{keepNote}</p>
-                      ) : null}
-                    </div>
-                  ) : null}
-                </div>
-
-                {savedReviews.length > 0 ? (
-                  <div className="rounded-xl border border-[var(--line)] bg-white/70 px-4 py-3">
-                    <div className="flex items-center justify-between gap-3">
-                      <p className="text-sm font-semibold text-[var(--ink)]">
-                        Saved in this browser ({savedReviews.length})
+                        {determinationCopy(determination).detail} Saved on this
+                        computer.
                       </p>
                       <button
                         type="button"
-                        className="btn-secondary"
-                        style={{ padding: "0.4rem 0.7rem", fontSize: "0.85rem" }}
-                        onClick={removeAllSaved}
+                        className="btn-primary mt-3"
+                        onClick={loadRandomCase}
                       >
-                        Delete all
+                        Next random case
                       </button>
                     </div>
-                    <ul className="mt-3 space-y-2">
-                      {savedReviews.map((review) => (
-                        <li
-                          key={review.id}
-                          className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-[var(--line)] bg-white/80 px-3 py-2 text-sm"
-                        >
-                          <button
-                            type="button"
-                            className="min-w-0 flex-1 text-left"
-                            onClick={() => openSaved(review)}
-                          >
-                            <span className="font-semibold text-[var(--ink)]">
-                              {review.label}
-                            </span>
-                            <span className="mt-0.5 block text-[var(--ink-soft)]">
-                              {review.determination} · {review.overall} ·{" "}
-                              {new Date(review.savedAt).toLocaleString()}
-                            </span>
-                          </button>
-                          <button
-                            type="button"
-                            className="btn-secondary"
-                            style={{ padding: "0.35rem 0.65rem", fontSize: "0.8rem" }}
-                            onClick={() => removeSaved(review.id)}
-                          >
-                            Delete
-                          </button>
-                        </li>
-                      ))}
-                    </ul>
-                  </div>
-                ) : null}
+                  ) : null}
+                </div>
 
                 <ul className="space-y-3">
                   {result.comparisons.map((row) => {
@@ -764,11 +515,8 @@ export default function VerifyApp() {
                         <p className="mt-1 text-sm leading-relaxed opacity-90">
                           {row.message}
                         </p>
-
                         {row.diffText ? (
-                          <pre
-                            className="mt-3 whitespace-pre-wrap rounded-xl border border-[var(--line)] bg-white/40 p-3 text-[0.88rem] leading-relaxed opacity-95 overflow-auto"
-                          >
+                          <pre className="mt-3 overflow-auto whitespace-pre-wrap rounded-xl border border-[var(--line)] bg-white/40 p-3 text-[0.88rem] leading-relaxed opacity-95">
                             {row.diffText}
                           </pre>
                         ) : null}
@@ -794,16 +542,33 @@ export default function VerifyApp() {
                     );
                   })}
                 </ul>
+              </div>
+            ) : null}
 
-                {batchQueue.length > 1 && batchIndex < batchQueue.length - 1 ? (
-                  <button
-                    type="button"
-                    className="btn-secondary w-full"
-                    onClick={() => void loadNextBatchItem()}
-                  >
-                    Next label in batch ({batchIndex + 2} of {batchQueue.length})
-                  </button>
-                ) : null}
+            {savedReviews.length > 0 ? (
+              <div className="mt-6 rounded-xl border border-[var(--line)] bg-white/70 px-4 py-3">
+                <p className="text-sm font-semibold text-[var(--ink)]">
+                  Recent decisions ({savedReviews.length})
+                </p>
+                <p className="mt-1 text-sm text-[var(--ink-soft)]">
+                  Stored on this computer only. Cannot be deleted here.
+                </p>
+                <ul className="mt-3 max-h-48 space-y-2 overflow-auto">
+                  {savedReviews.slice(0, 12).map((review) => (
+                    <li
+                      key={review.id}
+                      className="rounded-lg border border-[var(--line)] bg-white/80 px-3 py-2 text-sm"
+                    >
+                      <span className="font-semibold text-[var(--ink)]">
+                        {review.label}
+                      </span>
+                      <span className="mt-0.5 block text-[var(--ink-soft)]">
+                        {review.determination} · {review.overall} ·{" "}
+                        {new Date(review.savedAt).toLocaleString()}
+                      </span>
+                    </li>
+                  ))}
+                </ul>
               </div>
             ) : null}
           </div>
@@ -813,32 +578,26 @@ export default function VerifyApp() {
   );
 }
 
-function Field({
-  id,
+function LockedField({
   label,
   value,
-  onChange,
-  placeholder,
+  multiline = false,
 }: {
-  id: string;
   label: string;
   value: string;
-  onChange: (value: string) => void;
-  placeholder?: string;
+  multiline?: boolean;
 }) {
   return (
     <div>
-      <label htmlFor={id} className="mb-2 block text-sm font-semibold">
-        {label}
-      </label>
-      <input
-        id={id}
-        className="field-input"
-        value={value}
-        placeholder={placeholder}
-        onChange={(e) => onChange(e.target.value)}
-        autoComplete="off"
-      />
+      <p className="mb-2 text-sm font-semibold text-[var(--ink)]">{label}</p>
+      <div
+        className={`field-input bg-[var(--paper-2)] text-[var(--ink)] ${
+          multiline ? "min-h-28 whitespace-pre-wrap" : ""
+        }`}
+        aria-readonly="true"
+      >
+        {value || "—"}
+      </div>
     </div>
   );
 }

@@ -39,22 +39,22 @@ Open [http://localhost:3000](http://localhost:3000).
 
 ### Demo mode (no API key)
 
-1. Leave **Try a demo sample** selected
-2. Pick a scenario (Pass / Review / Fail cases: brand, ABV, net contents, warning prefix, warning wording, missing warning)
-3. Click **Verify label**
+1. Open the app — a random practice case loads
+2. Press **Check label**, then **Accept**, **Reject**, or **Hold**
+3. Press **Next random case** for another file
 
-Each demo includes a sample label image under `public/samples/`.
+Application fields are **locked** (reviewers cannot edit them). Upload and batch tools are under **Extra options**.
 
 ### Live image mode
 
-1. Set `OPENAI_API_KEY` in `.env.local`
-2. Click **Upload label image** (or use a file from `public/samples/`)
-3. Fill application fields (demos prefill them)
-4. Click **Verify label**
+1. Set `OPENAI_API_KEY` in `.env.local` (or Vercel env)
+2. Open **Extra options** → **Upload my own label picture**
+3. Application fields stay locked from the current case
+4. Press **Check label**
 
 ### Batch mode (CSV + images)
 
-1. Click **Batch (CSV + images)**
+1. Open **Extra options** → **Check many at once (CSV)**
 2. Download [`/batch-template.csv`](./public/batch-template.csv)
 3. Upload that CSV plus the matching images from [`public/samples/`](./public/samples/) (filenames must match exactly)
 4. Start the batch check
