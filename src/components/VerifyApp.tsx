@@ -233,12 +233,13 @@ export default function VerifyApp() {
                 className="btn-secondary"
                 data-active={mode === "demo"}
                 onClick={() => {
-                  setMode("demo");
-                  setImageDataUrl(null);
-                  setImageName(null);
-                  setBatchQueue([]);
-                  setResult(null);
-                  setError(null);
+                setMode("demo");
+                setImageDataUrl(null);
+                setImageName(null);
+                setBatchQueue([]);
+                setResult(null);
+                setDetermination(null);
+                setError(null);
                 }}
                 style={
                   mode === "demo"
@@ -452,7 +453,7 @@ export default function VerifyApp() {
               Results
             </h2>
             <p className="mt-2 text-[var(--ink-soft)]">
-              Field-by-field comparison for the agent queue.
+              System recommendation first — then record your determination.
             </p>
 
             {error ? (
@@ -473,6 +474,9 @@ export default function VerifyApp() {
                 <div
                   className={`rounded-xl border px-4 py-3 ${overallCopy(result.overall).className}`}
                 >
+                  <p className="text-xs font-semibold tracking-wide uppercase opacity-80">
+                    System check
+                  </p>
                   <p className="text-lg font-bold">
                     {overallCopy(result.overall).title}
                   </p>
@@ -483,6 +487,69 @@ export default function VerifyApp() {
                     {result.elapsedMs} ms ·{" "}
                     {result.mode === "demo" ? "demo mode" : "live vision"}
                   </p>
+                </div>
+
+                <div className="rounded-xl border border-[var(--line)] bg-white/70 px-4 py-3">
+                  <p className="text-sm font-semibold text-[var(--ink)]">
+                    Agent determination
+                  </p>
+                  <p className="mt-1 text-sm text-[var(--ink-soft)]">
+                    Prototype only — not sent to COLA. Choose how you would
+                    handle this application.
+                  </p>
+                  <div className="mt-3 flex flex-wrap gap-2">
+                    <button
+                      type="button"
+                      className="btn-primary"
+                      style={{ padding: "0.65rem 1rem", fontSize: "1rem" }}
+                      onClick={() => setDetermination("accept")}
+                      aria-pressed={determination === "accept"}
+                    >
+                      Accept
+                    </button>
+                    <button
+                      type="button"
+                      className="btn-secondary"
+                      onClick={() => setDetermination("reject")}
+                      aria-pressed={determination === "reject"}
+                      style={
+                        determination === "reject"
+                          ? { borderColor: "var(--bad)", color: "var(--bad)" }
+                          : undefined
+                      }
+                    >
+                      Reject
+                    </button>
+                    <button
+                      type="button"
+                      className="btn-secondary"
+                      onClick={() => setDetermination("hold")}
+                      aria-pressed={determination === "hold"}
+                      style={
+                        determination === "hold"
+                          ? {
+                              borderColor: "var(--warn)",
+                              color: "var(--warn)",
+                            }
+                          : undefined
+                      }
+                    >
+                      Hold for review
+                    </button>
+                  </div>
+                  {determination ? (
+                    <div
+                      className={`mt-3 rounded-lg border px-3 py-2 text-sm ${determinationCopy(determination).className}`}
+                      role="status"
+                    >
+                      <p className="font-bold">
+                        {determinationCopy(determination).title}
+                      </p>
+                      <p className="mt-0.5 opacity-90">
+                        {determinationCopy(determination).detail}
+                      </p>
+                    </div>
+                  ) : null}
                 </div>
 
                 <ul className="space-y-3">
