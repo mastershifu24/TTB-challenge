@@ -11,6 +11,13 @@ import {
   type VerificationResult,
 } from "@/lib/types";
 import BatchVerifyApp from "@/components/BatchVerifyApp";
+import {
+  clearReviews,
+  deleteReview,
+  loadSavedReviews,
+  saveReview,
+  type SavedReview,
+} from "@/lib/history";
 
 type Mode = "upload" | "demo";
 type AgentDetermination = "accept" | "reject" | "hold" | null;
@@ -89,9 +96,15 @@ export default function VerifyApp() {
   const [error, setError] = useState<string | null>(null);
   const [result, setResult] = useState<VerificationResult | null>(null);
   const [determination, setDetermination] = useState<AgentDetermination>(null);
+  const [savedReviews, setSavedReviews] = useState<SavedReview[]>([]);
+  const [keepNote, setKeepNote] = useState<string | null>(null);
   const [batchQueue, setBatchQueue] = useState<File[]>([]);
   const [batchIndex, setBatchIndex] = useState(0);
   const [isPending, startTransition] = useTransition();
+
+  useEffect(() => {
+    setSavedReviews(loadSavedReviews());
+  }, []);
 
   useEffect(() => {
     const sample = DEMO_SAMPLES.find((s) => s.id === demoSampleId);
@@ -99,6 +112,7 @@ export default function VerifyApp() {
       setApplication({ ...sample.application });
       setResult(null);
       setDetermination(null);
+      setKeepNote(null);
       setError(null);
     }
   }, [demoSampleId, mode]);
@@ -121,6 +135,7 @@ export default function VerifyApp() {
     setError(null);
     setResult(null);
     setDetermination(null);
+    setKeepNote(null);
 
     if (list.length > 1) {
       setBatchQueue(list);
@@ -139,6 +154,7 @@ export default function VerifyApp() {
   function verify() {
     setError(null);
     setDetermination(null);
+    setKeepNote(null);
     startTransition(async () => {
       try {
         const payload =
@@ -173,7 +189,62 @@ export default function VerifyApp() {
     setImageDataUrl(await fileToDataUrlResized(file));
     setResult(null);
     setDetermination(null);
+    setKeepNote(null);
     setError(null);
+  }
+
+  function keepCurrentReview() {
+    if (!result || !determination) return;
+    const label =
+      application.brandName.trim() ||
+      imageName ||
+      DEMO_SAMPLES.find((s) => s.id === demoSampleId)?.name ||
+      "Label review";
+    const next = saveReview({
+      label,
+      determination,
+      overall: result.overall,
+      application,
+      result,
+      imageDataUrl: mode === "upload" ? imageDataUrl : null,
+      demoSampleId: mode === "demo" ? demoSampleId : undefined,
+    });
+    setSavedReviews(next);
+    setKeepNote("Kept in this browser (local only).");
+  }
+
+  function discardCurrentReview() {
+    setResult(null);
+    setDetermination(null);
+    setKeepNote(null);
+    setError(null);
+  }
+
+  function removeSaved(id: string) {
+    setSavedReviews(deleteReview(id));
+  }
+
+  function removeAllSaved() {
+    setSavedReviews(clearReviews());
+  }
+
+  function openSaved(review: SavedReview) {
+    setView("single");
+    setApplication({ ...review.application });
+    setResult(review.result);
+    setDetermination(review.determination);
+    setKeepNote("Loaded from saved reviews.");
+    setError(null);
+    if (review.demoSampleId) {
+      setMode("demo");
+      setDemoSampleId(review.demoSampleId);
+      setImageDataUrl(null);
+      setImageName(null);
+    } else if (review.imageDataUrl) {
+      setMode("upload");
+      setImageDataUrl(review.imageDataUrl);
+      setImageName(review.label);
+    }
   }
 
   const canVerify =
@@ -239,6 +310,7 @@ export default function VerifyApp() {
                 setBatchQueue([]);
                 setResult(null);
                 setDetermination(null);
+                setKeepNote(null);
                 setError(null);
                 }}
                 style={
@@ -463,10 +535,59 @@ export default function VerifyApp() {
             ) : null}
 
             {!result && !error ? (
-              <p className="mt-8 text-[var(--ink-soft)]">
-                Choose a demo sample or upload a label, then press{" "}
-                <strong className="text-[var(--ink)]">Verify label</strong>.
-              </p>
+              <div className="mt-8 space-y-4">
+                <p className="text-[var(--ink-soft)]">
+                  Choose a demo sample or upload a label, then press{" "}
+                  <strong className="text-[var(--ink)]">Verify label</strong>.
+                </p>
+                {savedReviews.length > 0 ? (
+                  <div className="rounded-xl border border-[var(--line)] bg-white/70 px-4 py-3">
+                    <div className="flex items-center justify-between gap-3">
+                      <p className="text-sm font-semibold text-[var(--ink)]">
+                        Saved in this browser ({savedReviews.length})
+                      </p>
+                      <button
+                        type="button"
+                        className="btn-secondary"
+                        style={{ padding: "0.4rem 0.7rem", fontSize: "0.85rem" }}
+                        onClick={removeAllSaved}
+                      >
+                        Delete all
+                      </button>
+                    </div>
+                    <ul className="mt-3 space-y-2">
+                      {savedReviews.map((review) => (
+                        <li
+                          key={review.id}
+                          className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-[var(--line)] bg-white/80 px-3 py-2 text-sm"
+                        >
+                          <button
+                            type="button"
+                            className="min-w-0 flex-1 text-left"
+                            onClick={() => openSaved(review)}
+                          >
+                            <span className="font-semibold text-[var(--ink)]">
+                              {review.label}
+                            </span>
+                            <span className="mt-0.5 block text-[var(--ink-soft)]">
+                              {review.determination} · {review.overall} ·{" "}
+                              {new Date(review.savedAt).toLocaleString()}
+                            </span>
+                          </button>
+                          <button
+                            type="button"
+                            className="btn-secondary"
+                            style={{ padding: "0.35rem 0.65rem", fontSize: "0.8rem" }}
+                            onClick={() => removeSaved(review.id)}
+                          >
+                            Delete
+                          </button>
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                ) : null}
+              </div>
             ) : null}
 
             {result ? (
@@ -548,9 +669,77 @@ export default function VerifyApp() {
                       <p className="mt-0.5 opacity-90">
                         {determinationCopy(determination).detail}
                       </p>
+                      <div className="mt-3 flex flex-wrap gap-2">
+                        <button
+                          type="button"
+                          className="btn-primary"
+                          style={{ padding: "0.55rem 0.9rem", fontSize: "0.95rem" }}
+                          onClick={keepCurrentReview}
+                        >
+                          Keep in app
+                        </button>
+                        <button
+                          type="button"
+                          className="btn-secondary"
+                          onClick={discardCurrentReview}
+                        >
+                          Discard
+                        </button>
+                      </div>
+                      {keepNote ? (
+                        <p className="mt-2 text-sm opacity-90">{keepNote}</p>
+                      ) : null}
                     </div>
                   ) : null}
                 </div>
+
+                {savedReviews.length > 0 ? (
+                  <div className="rounded-xl border border-[var(--line)] bg-white/70 px-4 py-3">
+                    <div className="flex items-center justify-between gap-3">
+                      <p className="text-sm font-semibold text-[var(--ink)]">
+                        Saved in this browser ({savedReviews.length})
+                      </p>
+                      <button
+                        type="button"
+                        className="btn-secondary"
+                        style={{ padding: "0.4rem 0.7rem", fontSize: "0.85rem" }}
+                        onClick={removeAllSaved}
+                      >
+                        Delete all
+                      </button>
+                    </div>
+                    <ul className="mt-3 space-y-2">
+                      {savedReviews.map((review) => (
+                        <li
+                          key={review.id}
+                          className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-[var(--line)] bg-white/80 px-3 py-2 text-sm"
+                        >
+                          <button
+                            type="button"
+                            className="min-w-0 flex-1 text-left"
+                            onClick={() => openSaved(review)}
+                          >
+                            <span className="font-semibold text-[var(--ink)]">
+                              {review.label}
+                            </span>
+                            <span className="mt-0.5 block text-[var(--ink-soft)]">
+                              {review.determination} · {review.overall} ·{" "}
+                              {new Date(review.savedAt).toLocaleString()}
+                            </span>
+                          </button>
+                          <button
+                            type="button"
+                            className="btn-secondary"
+                            style={{ padding: "0.35rem 0.65rem", fontSize: "0.8rem" }}
+                            onClick={() => removeSaved(review.id)}
+                          >
+                            Delete
+                          </button>
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                ) : null}
 
                 <ul className="space-y-3">
                   {result.comparisons.map((row) => {

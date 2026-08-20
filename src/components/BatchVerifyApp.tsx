@@ -320,9 +320,9 @@ export default function BatchVerifyApp() {
           <code className="text-[var(--ink)]">public/samples/</code> (e.g.{" "}
           <a
             className="font-semibold text-[var(--brand)] underline"
-            href="/samples/old-tom-pass.jpg"
+            href="/samples/old-tom-pass.svg"
           >
-            old-tom-pass.jpg
+            old-tom-pass.svg
           </a>
           ).
         </p>

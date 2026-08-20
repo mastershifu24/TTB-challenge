@@ -20,7 +20,7 @@ export const DEMO_SAMPLES: DemoSample[] = [
     id: "old-tom-pass",
     name: "Old Tom — clean pass",
     description: "All fields match, including exact GOVERNMENT WARNING prefix.",
-    imagePath: "/samples/old-tom-pass.jpg",
+    imagePath: "/samples/old-tom-pass.svg",
     application: {
       brandName: "OLD TOM DISTILLERY",
       classType: "Kentucky Straight Bourbon Whiskey",
@@ -47,7 +47,7 @@ export const DEMO_SAMPLES: DemoSample[] = [
     name: "Stone's Throw — soft brand match",
     description:
       "Brand casing differs (STONE'S THROW vs Stone's Throw). Should be soft_match, not a hard fail.",
-    imagePath: "/samples/stones-throw.jpg",
+    imagePath: "/samples/stones-throw.svg",
     application: {
       brandName: "Stone's Throw",
       classType: "Straight Rye Whiskey",
@@ -74,7 +74,7 @@ export const DEMO_SAMPLES: DemoSample[] = [
     name: "Warning — title case prefix",
     description:
       "Uses “Government Warning:” instead of required “GOVERNMENT WARNING:”.",
-    imagePath: "/samples/warning-title-case.jpg",
+    imagePath: "/samples/warning-title-case.svg",
     application: {
       brandName: "RIVERBEND GIN",
       classType: "Distilled Gin",
@@ -103,7 +103,7 @@ export const DEMO_SAMPLES: DemoSample[] = [
     id: "abv-mismatch",
     name: "ABV mismatch",
     description: "Application says 45%; label shows 40%.",
-    imagePath: "/samples/abv-mismatch.jpg",
+    imagePath: "/samples/abv-mismatch.svg",
     application: {
       brandName: "CEDAR CREEK",
       classType: "American Single Malt Whiskey",
@@ -129,7 +129,7 @@ export const DEMO_SAMPLES: DemoSample[] = [
     id: "missing-warning",
     name: "Missing government warning",
     description: "No health warning statement found on the label.",
-    imagePath: "/samples/missing-warning.jpg",
+    imagePath: "/samples/missing-warning.svg",
     application: {
       brandName: "HARBOR LIGHT",
       classType: "Silver Tequila",
